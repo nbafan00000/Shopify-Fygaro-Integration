@@ -32,13 +32,13 @@ app.get('/pay', async (req, res) => {
         const customReference = orderName;  // Use Shopify order name as reference
 
         // Option 1: Simple pre-filled URL (editable by user)
-        // let fygaroUrl = `${process.env.FYGARO_BUTTON_URL}?amount=${encodeURIComponent(amount)}&client_reference=${encodeURIComponent(customReference)}`;
+        let fygaroUrl = `${process.env.FYGARO_BUTTON_URL}?amount=${encodeURIComponent(amount)}&client_reference=${encodeURIComponent(customReference)}`;
 
         // Option 2: Secure JWT URL (non-editable, recommended for Pro plan)
-        const header = { alg: 'HS256', typ: 'JWT', kid: process.env.FYGARO_API_KEY };
-        const payload = { amount: amount.toFixed(2), currency, custom_reference: customReference };
-        const token = jwt.sign(payload, process.env.FYGARO_SECRET, { header });
-        const fygaroUrl = `${process.env.FYGARO_BUTTON_URL}?jwt=${token}`;
+        // const header = { alg: 'HS256', typ: 'JWT', kid: process.env.FYGARO_API_KEY };
+        // const payload = { amount: amount.toFixed(2), currency, custom_reference: customReference };
+        // const token = jwt.sign(payload, process.env.FYGARO_SECRET, { header });
+        // const fygaroUrl = `${process.env.FYGARO_BUTTON_URL}?jwt=${token}`;
 
         // Redirect to Fygaro
         res.redirect(fygaroUrl);
