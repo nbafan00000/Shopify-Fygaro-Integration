@@ -13,32 +13,31 @@ app.use(express.json());  // Parse JSON bodies for webhooks
 // Endpoint to generate Fygaro payment link and redirect
 app.get('/pay', async (req, res) => {
     const { shop, variant_id, quantity } = req.query;
+    const shopify = new Shopify({
+        shopName: process.env.SHOPIFY_STORE_URL,
+        accessToken: process.env.SHOPIFY_API_TOKEN
+    });
 
     try {
-        const shopify = new Shopify({
-            shopName: process.env.SHOPIFY_STORE_URL,
-            accessToken: process.env.SHOPIFY_API_TOKEN
-        });
-        // Create draft order
-        const draftOrder = await shopify.draftOrder.create({
+        const order = await shopify.order.create({
             line_items: [{
                 variant_id: parseInt(variant_id),
                 quantity: parseInt(quantity),
             }],
+            financial_status: 'pending'
         });
 
-        const amount = draftOrder.total_price; // Or calculate manually
-        const currency = draftOrder.currency; // e.g., 'USD'
-        const customReference = draftOrder.id.toString(); // Use draft ID for tracking
+        const amount = order.total_price; // Or calculate manually
+        const currency = order.currency; // e.g., 'USD'
+        const customReference = order.name; // Use order name for tracking
 
         // Build Fygaro payment URL
-        const paymentUrl = `${process.env.FYGARO_BUTTON_URL}?amount=${amount.toFixed(2)}&client_reference=${customReference}`;
+        const paymentUrl = `${process.env.FYGARO_BUTTON_URL}?amount=${amount}&client_reference=${customReference}`;
 
         // Redirect to Fygaro
         res.redirect(paymentUrl);
     } catch (error) {
-        console.error(error);
-        res.status(500).send('Error creating draft order or redirecting to Fygaro');
+        console.error('Error creating order:', error);
     }
 });
 
