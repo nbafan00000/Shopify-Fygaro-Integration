@@ -3,48 +3,42 @@ const express = require('express');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');  // For webhook verification
-const Shopify = require('shopify-node-api');
+const Shopify = require('shopify-api-node');
 
 const app = express();
 app.use(express.json());  // Parse JSON bodies for webhooks
 
-const shopify = new Shopify({
-    shop: process.env.SHOPIFY_STORE_URL,
-    access_token: process.env.SHOPIFY_API_TOKEN
-});
+
 
 // Endpoint to generate Fygaro payment link and redirect
 app.get('/pay', async (req, res) => {
-    const orderId = req.query.order_id;
-    const orderName = req.query.order_name;
+    const { shop, variant_id, quantity } = req.query;
 
     try {
-        // Fetch order details from Shopify
-        const order = await new Promise((resolve, reject) => {
-            shopify.get(`/admin/api/2024-10/orders/${orderId}.json`, (err, data) => {
-                if (err) reject(err);
-                resolve(data.order);
-            });
+        const shopify = new Shopify({
+            shopName: process.env.SHOPIFY_STORE_URL,
+            accessToken: process.env.SHOPIFY_API_TOKEN
+        });
+        // Create draft order
+        const draftOrder = await shopify.draftOrder.create({
+            line_items: [{
+                variant_id: parseInt(variant_id),
+                quantity: parseInt(quantity),
+            }],
         });
 
-        const amount = order.total_price;
-        const currency = order.currency;
-        const customReference = orderName;  // Use Shopify order name as reference
+        const amount = draftOrder.total_price; // Or calculate manually
+        const currency = draftOrder.currency; // e.g., 'USD'
+        const customReference = draftOrder.id.toString(); // Use draft ID for tracking
 
-        // Option 1: Simple pre-filled URL (editable by user)
-        let fygaroUrl = `${process.env.FYGARO_BUTTON_URL}?amount=${encodeURIComponent(amount)}&client_reference=${encodeURIComponent(customReference)}`;
-
-        // Option 2: Secure JWT URL (non-editable, recommended for Pro plan)
-        // const header = { alg: 'HS256', typ: 'JWT', kid: process.env.FYGARO_API_KEY };
-        // const payload = { amount: amount.toFixed(2), currency, custom_reference: customReference };
-        // const token = jwt.sign(payload, process.env.FYGARO_SECRET, { header });
-        // const fygaroUrl = `${process.env.FYGARO_BUTTON_URL}?jwt=${token}`;
+        // Build Fygaro payment URL
+        const paymentUrl = `${process.env.FYGARO_BUTTON_URL}?amount=${amount.toFixed(2)}&client_reference=${customReference}`;
 
         // Redirect to Fygaro
-        res.redirect(fygaroUrl);
+        res.redirect(paymentUrl);
     } catch (error) {
         console.error(error);
-        res.status(500).send('Error generating payment link');
+        res.status(500).send('Error creating draft order or redirecting to Fygaro');
     }
 });
 
