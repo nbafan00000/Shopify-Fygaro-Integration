@@ -16,7 +16,7 @@ var order = null;
 
 // Endpoint to generate Fygaro payment link and redirect
 app.get('/pay', async (req, res) => {
-    const { shop, variant_id, quantity, line_items } = req.query;
+    const { customer_id, variant_id, quantity, line_items } = req.query;
     const shopify = new Shopify({
         shopName: process.env.SHOPIFY_STORE_URL,
         accessToken: process.env.SHOPIFY_API_TOKEN
@@ -31,6 +31,7 @@ app.get('/pay', async (req, res) => {
             }
             order = await shopify.order.create({
                 line_items: parsedLineItems,
+                customer_id: parseInt(customer_id),
                 financial_status: 'pending'
             });
         }
@@ -41,6 +42,7 @@ app.get('/pay', async (req, res) => {
                     variant_id: parseInt(variant_id),
                     quantity: parseInt(quantity),
                 }],
+                customer_id: parseInt(customer_id),
                 financial_status: 'pending'
             });
         }
