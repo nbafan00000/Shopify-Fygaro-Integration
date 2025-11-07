@@ -17,35 +17,39 @@ var order = null;
 // Endpoint to generate Fygaro payment link and redirect
 app.get('/pay', async (req, res) => {
     const { customer_id, variant_id, quantity, line_items } = req.query;
+    console.log(customer_id);
     const shopify = new Shopify({
         shopName: process.env.SHOPIFY_STORE_URL,
         accessToken: process.env.SHOPIFY_API_TOKEN
     });
 
     try {
+        let orderPayload = {}; // Build payload dynamically
+
         if (line_items) {
             console.log('Creating order with multiple line items');
             const parsedLineItems = JSON.parse(decodeURIComponent(line_items || '[]'));
             if (!Array.isArray(parsedLineItems) || parsedLineItems.length === 0) {
                 throw new Error('Invalid line items');
             }
-            order = await shopify.order.create({
-                line_items: parsedLineItems,
-                customer_id: parseInt(customer_id),
-                financial_status: 'pending'
-            });
-        }
-        else {
+            orderPayload.line_items = parsedLineItems;
+        } else {
             console.log('Creating order with single line item');
-            order = await shopify.order.create({
-                line_items: [{
-                    variant_id: parseInt(variant_id),
-                    quantity: parseInt(quantity),
-                }],
-                customer_id: parseInt(customer_id),
-                financial_status: 'pending'
-            });
+            orderPayload.line_items = [{
+                variant_id: parseInt(variant_id),
+                quantity: parseInt(quantity),
+            }];
         }
+
+        // Add customer association if ID provided
+        const parsedCustomerId = parseInt(customer_id);
+        if (!isNaN(parsedCustomerId)) {
+            orderPayload.customer = { id: parsedCustomerId };
+        }
+
+        orderPayload.financial_status = 'pending';
+
+        const order = await shopify.order.create(orderPayload);
 
         const amount = order.total_price; // Or calculate manually
         const currency = order.currency; // e.g., 'USD'
