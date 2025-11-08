@@ -5,7 +5,7 @@ import Shopify from 'shopify-api-node';
 import jwt from 'jsonwebtoken';
 
 // Shopify API (v12+ is ESM only)
-import { shopifyApi, ApiVersion } from '@shopify/shopify-api';
+import { shopifyApi, ApiVersion, LATEST_API_VERSION } from '@shopify/shopify-api';
 import '@shopify/shopify-api/adapters/node'; // registers the Node adapter
 
 
@@ -17,7 +17,6 @@ var order = null;
 // Endpoint to generate Fygaro payment link and redirect
 app.get('/pay', async (req, res) => {
     const { customer_id, variant_id, quantity, line_items } = req.query;
-    console.log(customer_id);
     const shopify = new Shopify({
         shopName: process.env.SHOPIFY_STORE_URL,
         accessToken: process.env.SHOPIFY_API_TOKEN
@@ -133,50 +132,77 @@ app.get('/confirm', async (req, res) => {
 
 // Webhook endpoint for Fygaro notifications (on successful payment)
 
-app.post('/webhook', (req, res) => {
-    const signature = req.headers['fygaro-signature'];
-    const keyId = req.headers['fygaro-key-id'];
-    const rawBody = JSON.stringify(req.body);
+// import bodyParser from 'body-parser';
+// // Use body-parser to get raw body for signature verification
+// app.use(bodyParser.json({
+//     verify: (req, res, buf) => {
+//         req.rawBody = buf; // Store raw body for verification
+//     }
+// }));
+// Shopify configuration
+const shopify = new Shopify({
+    shopName: process.env.SHOPIFY_STORE_URL, // e.g., 'your-shop.myshopify.com'
+    accessToken: process.env.SHOPIFY_API_TOKEN,
+    apiVersion: '2024-10' // Use a recent API version
+});
 
-    // Verify signature (DIY method for Node.js)
-    const parts = signature.split(',').reduce((acc, part) => {
-        const [k, v] = part.trim().split('=');
-        if (k === 't') acc.timestamp = v;
-        if (k === 'v1') acc.hashes.push(v);
-        return acc;
-    }, { timestamp: null, hashes: [] });
+import { FygaroWebhookValidator } from "@fygaro/webhook";
 
-    if (!parts.timestamp || parts.hashes.length === 0 || keyId !== process.env.FYGARO_API_KEY) {
-        return res.status(400).send('Invalid webhook');
+
+app.post('/webhook', async (req, res) => {
+    const secret = process.env.FYGARO_SECRET; // Your Fygaro API secret key
+    const signatureHeader = req.headers['fygaro-signature'];
+    const keyIdHeader = req.headers['fygaro-key-id'];
+
+    try {
+        // verifyWebhook({
+        //     rawBody: req.rawBody,
+        //     signatureHeader,
+        //     keyIdHeader,
+        //     secret, // Or support multiple secrets if rotating
+        //     tolerance: 300 // 5 minutes tolerance for timestamp
+        // });
+        console.log('Webhook signature verified');
+
+        // Webhook verified, process payload
+        const payload = req.body;
+
+        // Assume order_id is passed in customReference (set this when creating Fygaro payment link)
+        const orderId = payload.customReference;
+        if (!orderId) {
+            throw new Error('Missing order_id in customReference');
+        }
+
+        // Get the order details from Shopify to verify amount and currency
+        const order = await shopify.order.get(orderId);
+        if (order.financial_status !== 'pending') {
+            throw new Error('Order is not in pending status');
+        }
+
+        const expectedAmount = order.total_price; // Or remaining pending amount
+        const expectedCurrency = order.currency;
+
+        if (payload.amount !== expectedAmount || payload.currency !== expectedCurrency) {
+            throw new Error('Amount or currency mismatch');
+        }
+
+        // Create transaction to mark as paid
+        // For pending payments, create a 'sale' transaction
+        const transaction = await shopify.transaction.create(orderId, {
+            kind: 'sale',
+            status: 'success',
+            amount: payload.amount,
+            currency: payload.currency,
+            gateway: 'fygaro',
+            source: 'external',
+            test: false // Set to true for testing
+        });
+
+        res.status(200).send('Webhook processed successfully');
+    } catch (error) {
+        console.error('Webhook error:', error);
+        res.status(400).send('Invalid webhook');
     }
-
-    // Replay protection: Check timestamp within 5 min
-    if (Math.abs(Date.now() / 1000 - parseInt(parts.timestamp)) > 300) {
-        return res.status(400).send('Stale timestamp');
-    }
-
-    const message = `${parts.timestamp}.${rawBody}`;
-    const expectedHash = crypto.createHmac('sha256', process.env.FYGARO_HOOK_SECRET).update(message).digest('hex');
-
-    const isValid = parts.hashes.some(hash => crypto.timingSafeEqual(Buffer.from(expectedHash), Buffer.from(hash)));
-    if (!isValid) {
-        return res.status(400).send('Invalid signature');
-    }
-
-    // Signature valid: Update Shopify order
-    const customReference = req.body.customReference;  // Order name
-    shopify.put(`/admin/api/2024-10/orders/${customReference}/transactions.json`, {
-        transaction: { kind: 'sale', status: 'success', amount: req.body.amount }
-    }, (err) => {
-        if (err) console.error(err);
-    });
-
-    // Mark order as paid
-    shopify.put(`/admin/api/2024-10/orders/${customReference}.json`, { order: { financial_status: 'paid' } }, (err) => {
-        if (err) console.error(err);
-    });
-
-    res.status(200).send('OK');
 });
 
 app.listen(process.env.PORT, () => console.log(`Server running on port ${process.env.PORT}`));
