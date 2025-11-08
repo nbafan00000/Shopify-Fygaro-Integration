@@ -146,9 +146,6 @@ const shopify = new Shopify({
     apiVersion: '2024-10' // Use a recent API version
 });
 
-import { FygaroWebhookValidator } from "@fygaro/webhook";
-
-
 app.post('/webhook', async (req, res) => {
     const secret = process.env.FYGARO_SECRET; // Your Fygaro API secret key
     const signatureHeader = req.headers['fygaro-signature'];
